@@ -1,0 +1,413 @@
+---
+title: "101c_final_model"
+author: "Karl Elbakian"
+date: "12/9/2019"
+output:
+  word_document: default
+  html_document: default
+---
+
+
+#Training data frame
+
+```{r}
+library(dplyr)
+df <- read.csv('file:///C:/Users/karl/Desktop/stats 101c/101_final/train.csv')
+df2=df[,names(df)[!(duplicated(as.list(df),fromLast=TRUE))]]
+df2=df2[,-which(names(df2)=="id" | names(df2)=="gameID")]
+
+##############convert date column to date class
+df2$date=as.character(df2$date) %>% as.Date(format='%Y%m%d')
+
+##############find rest days for each visiting team and away team
+
+date_team <- rbind(data.frame(date = df2$date, team = df2$HT), data.frame(date = df2$date, team = df2$VT))
+
+date_team <- date_team %>% arrange(date) %>% group_by(team) %>% mutate(days_between = date - lag(date))
+
+df2$day_diff_HT <- 0
+df2$day_diff_VT <- 0
+
+for(i in 1:nrow(df2)) {
+  temp_date <- df2[i, "date"]
+  temp_HT <- df2[i, "HT"]
+  temp_VT <- df[i, "VT"]
+  
+  temp_HT_diff <- date_team[date_team$date == temp_date &
+                            date_team$team == temp_HT, "days_between"][1,]
+  
+  temp_VT_diff <- date_team[date_team$date == temp_date &
+                            date_team$team == temp_VT, "days_between"][1,]
+  
+  df2[i, "day_diff_HT"] <- temp_HT_diff
+  df2[i, "day_diff_VT"] <- temp_VT_diff
+}
+
+
+df2[is.na(df2$day_diff_HT),"day_diff_HT"]=0
+df2[is.na(df2$day_diff_VT),"day_diff_VT"]=0
+
+
+
+###################TOV%: 100 * (Turnovers/(Field Goals Attempted + 0.44*Free Throw Attempts + Turnovers))
+
+#average home team and visiting team turnovers, resp.
+
+
+temp_tov <- data.frame(df2$HT.TS.to,df2$HT.OTA.to,df2$HT.TA.to, df2$HT.OTS.to)
+
+HT_tov <- rowMeans(subset(temp_tov, select=c(df2.HT.TS.to, df2.HT.OTA.to)))
+VT_tov <- rowMeans(subset(temp_tov, select=c(df2.HT.TA.to, df2.HT.OTS.to)))
+
+tov_raw <- data.frame(HT.TOV = HT_tov, VT.TOV = VT_tov)
+
+#calculating average fga for HT/VT:
+fga_temp=data.frame(df2$HT.TS.fga,df2$HT.OTA.fga,df2$HT.TA.fga,df2$HT.OTS.fga)
+
+HT_avg_fga=rowMeans(subset(fga_temp, select=c(df2.HT.TS.fga,df2.HT.OTA.fga)))
+VT_avg_fga=rowMeans(subset(fga_temp, select=c(df2.HT.TA.fga,df2.HT.OTS.fga)))
+
+avg_fga=data.frame(HT.fga=HT_avg_fga, VT.fga=VT_avg_fga)
+
+#Average free throw attempts for ht/VT:
+
+fta_temp=data.frame(df2$HT.TS.fta,df2$HT.OTA.fta,df2$HT.TA.fta,df2$HT.OTS.fta)
+
+HT_avg_fta=rowMeans(subset(fta_temp, select=c(df2.HT.TS.fta,df2.HT.OTA.fta)))
+VT_avg_fta=rowMeans(subset(fta_temp, select=c(df2.HT.TA.fta,df2.HT.OTS.fta)))
+
+avg_fta=data.frame(HT.fta=HT_avg_fta, VT.fta=VT_avg_fta)
+
+
+#finally, we get tov%
+HT.TOV=100*(tov_raw$HT.TOV)/(avg_fga$HT.fga + .44*avg_fta$HT.fta + tov_raw$HT.TOV)
+VT.TOV=100*(tov_raw$VT.TOV)/(avg_fga$VT.fga + .44*avg_fta$VT.fta + tov_raw$VT.TOV)
+
+df2 <- data.frame(df2, HT.TOV, VT.TOV)
+
+#######Rebounding Rates:
+#Orebr: 100 * Offensive Rebounds/(Offensive Rebounds + Opposition Defensive Rebounds)
+#drebr intuitive.
+
+#off rebound averages.
+oreb_temp=data.frame(df2$HT.TS.oreb,df2$HT.OTA.oreb,df2$HT.TA.oreb,df2$HT.OTS.oreb)
+
+HT_oreb_avg=rowMeans(subset(oreb_temp, select=c(df2.HT.TS.oreb,df2.HT.OTA.oreb)))
+VT_oreb_avg=rowMeans(subset(oreb_temp, select=c(df2.HT.TA.oreb,df2.HT.OTS.oreb)))
+
+oreb_avgs = data.frame(HT.oreb=HT_oreb_avg, VT.oreb=VT_oreb_avg)
+
+#def. rebounds averages
+dreb_temp=data.frame(df2$HT.TS.dreb,df2$HT.OTA.dreb,df2$HT.TA.dreb,df2$HT.OTS.dreb)
+
+HT_dreb_avg=rowMeans(subset(dreb_temp, select=c(df2.HT.TS.dreb,df2.HT.OTA.dreb)))
+VT_dreb_avg=rowMeans(subset(dreb_temp, select=c(df2.HT.TA.dreb,df2.HT.OTS.dreb)))
+
+dreb_avgs = data.frame(HT.dreb=HT_dreb_avg, VT.dreb=VT_dreb_avg)
+
+#offensive rebounding rate:
+HT.orebr = 100 * (oreb_avgs$HT.oreb / (oreb_avgs$HT.oreb + dreb_avgs$VT.dreb))
+VT.orebr = 100 * (oreb_avgs$VT.oreb / (oreb_avgs$VT.oreb + dreb_avgs$HT.dreb))
+
+df2 <- data.frame(df2, HT.orebr, VT.orebr)
+
+#defensive rebounding rate:
+HT.drebr = 100 * (dreb_avgs$HT.dreb / (oreb_avgs$VT.oreb + dreb_avgs$HT.dreb))
+VT.drebr = 100 * (dreb_avgs$VT.dreb / (oreb_avgs$HT.oreb + dreb_avgs$VT.dreb))
+
+df2 <- data.frame(df2, HT.drebr, VT.drebr)
+
+
+####################Free throw rate: Free Throws Attempts/Field Goals Attempts
+HT_fts=avg_fta$HT.fta/avg_fga$HT.fga
+VT_fts=avg_fta$VT.fta/avg_fga$VT.fga
+ft_rates=data.frame(HT_ftr = HT_fts, VT_ftr=VT_fts)
+df2=cbind(df2,ft_rates)
+
+
+
+###########################eFG%/TS%:  (FGm + 0.5 * 3Pm) / FGA
+#TS% is just better than efg because it accounts for ft's, but since we're counting ftr we don't want to overstate their importance,
+#lets just use efg, which doesn't considers fts, instead.
+
+#Average 3pm:
+tpm_temp=data.frame(df2$HT.TS.tpm,df2$HT.OTA.tpm,df2$HT.TA.tpm,df2$HT.OTS.tpm)
+
+HT_avg_tpm=rowMeans(subset(tpm_temp, select=c(df2.HT.TS.tpm,df2.HT.OTA.tpm)))
+VT_avg_tpm=rowMeans(subset(tpm_temp, select=c(df2.HT.TA.tpm,df2.HT.OTS.tpm)))
+
+avg_tpm=data.frame(HT.tpm=HT_avg_tpm, VT.tpm=VT_avg_tpm)
+  
+
+#Average fgm:
+fgm_temp=data.frame(df2$HT.TS.fgm,df2$HT.OTA.fgm,df2$HT.TA.fgm,df2$HT.OTS.fgm)
+
+HT_avg_fgm=rowMeans(subset(fgm_temp, select=c(df2.HT.TS.fgm,df2.HT.OTA.fgm)))
+VT_avg_fgm=rowMeans(subset(fgm_temp, select=c(df2.HT.TA.fgm,df2.HT.OTS.fgm)))
+
+avg_fgm=data.frame(HT.fgm=HT_avg_fgm, VT.fgm=VT_avg_fgm)
+
+HT.efg=(avg_fgm$HT.fgm + .5*avg_tpm$HT.tpm) / (avg_fga$HT.fga)
+VT.efg=(avg_fgm$VT.fgm + .5*avg_tpm$VT.tpm) / (avg_fga$VT.fga)
+
+df2 <- data.frame(df2, HT.efg, VT.efg)
+
+####testing a model: removed features that I used to create other features that hopefully are improved
+
+df_trainer2=subset(df2, select=-c(HT.TS.to,HT.OTA.to,HT.TA.to, HT.OTS.to ,HT.TS.fga, HT.OTA.fga, HT.TA.fga, HT.OTS.fga, HT.TS.fta, HT.OTA.fta, HT.TA.fta, HT.OTS.fta, HT.TS.oreb, HT.OTA.oreb, HT.TA.oreb, HT.OTS.oreb, HT.TS.dreb, HT.OTA.dreb, HT.TA.dreb, HT.OTS.dreb, HT.TS.tpm, HT.OTA.tpm, HT.TA.tpm, HT.OTS.tpm, HT.TS.fgm, HT.OTA.fgm, HT.TA.fgm, HT.OTS.fgm, VTcumRest, HTcumRest, VT.S1.stl, VT.S2.stl, VT.S3.stl, VT.S4.stl, VT.S5.stl, HT.TA.stl, HT.TS.stl, HT.OTA.stl, HT.OTS.stl, HT.TA.pf, HT.TS.pf, HT.OTS.pf, HT.OTA.pf, HT.S2.stl, HT.S1.stl, HT.S3.stl, HT.S4.stl, HT.S5.stl)) 
+
+df_trainer4=subset(df_trainer2, select=-c(VTleague, HTleague))
+```
+
+
+
+#Testing data frame
+
+```{r}
+
+test=read.csv('test.csv')
+test$date=as.character(test$date) %>% as.Date(format='%Y%m%d')
+date_team <- rbind(data.frame(date = test$date, team = test$HT), data.frame(date = test$date, team = test$VT))
+
+
+
+date_team <- date_team %>% arrange(date) %>% group_by(team) %>% mutate(days_between = date - lag(date))
+
+test$day_diff_HT <- 0
+test$day_diff_VT <- 0
+
+for(i in 1:nrow(test)) {
+  temp_date <- test[i, "date"]
+  temp_HT <- test[i, "HT"]
+  temp_VT <- df[i, "VT"]
+
+  temp_HT_diff <- date_team[date_team$date == temp_date &
+                            date_team$team == temp_HT, "days_between"][1,]
+
+  temp_VT_diff <- date_team[date_team$date == temp_date &
+                            date_team$team == temp_VT, "days_between"][1,]
+
+  test[i, "day_diff_HT"] <- temp_HT_diff
+  test[i, "day_diff_VT"] <- temp_VT_diff
+}
+
+
+test[is.na(test$day_diff_HT),"day_diff_HT"]=0
+test[is.na(test$day_diff_VT),"day_diff_VT"]=0
+
+
+###################TOV%: 100 * (Turnovers/(Field Goals Attempted + 0.44*Free Throw Attempts + Turnovers))
+
+#average home team and visiting team turnovers, resp.
+
+temp_tov <- data.frame(test$HT.TS.to,test$HT.OTA.to,test$HT.TA.to, test$HT.OTS.to)
+
+test_HT_tov <- rowMeans(subset(temp_tov, select=c(test.HT.TS.to, test.HT.OTA.to)))
+test_VT_tov <- rowMeans(subset(temp_tov, select=c(test.HT.TA.to, test.HT.OTS.to)))
+
+
+test_tov_raw <- data.frame(HT.TOV = test_HT_tov, VT.TOV = test_VT_tov)
+
+#calculating average fga for ht/VT:
+fga_temp=data.frame(test$HT.TS.fga,test$HT.OTA.fga,test$HT.TA.fga,test$HT.OTS.fga)
+
+test_HT_avg_fga=rowMeans(subset(fga_temp, select=c(test.HT.TS.fga,test.HT.OTA.fga)))
+test_VT_avg_fga=rowMeans(subset(fga_temp, select=c(test.HT.TA.fga,test.HT.OTS.fga)))
+
+test_avg_fga=data.frame(HT.fga=test_HT_avg_fga, VT.fga=test_VT_avg_fga)
+
+#Average free throw attempts for ht/VT:
+
+fta_temp=data.frame(test$HT.TS.fta,test$HT.OTA.fta,test$HT.TA.fta,test$HT.OTS.fta)
+test_HT_avg_fta=rowMeans(subset(fta_temp, select=c(test.HT.TS.fta,test.HT.OTA.fta)))
+test_VT_avg_fta=rowMeans(subset(fta_temp, select=c(test.HT.TA.fta,test.HT.OTS.fta)))
+
+test_avg_fta=data.frame(HT.fta=test_HT_avg_fta, VT.fta=test_VT_avg_fta)
+
+
+#finally, we get tov%
+HT.TOV=100*(test_tov_raw$HT.TOV)/(test_avg_fga$HT.fga + .44*test_avg_fta$HT.fta + test_tov_raw$HT.TOV)
+VT.TOV=100*(test_tov_raw$VT.TOV)/(test_avg_fga$VT.fga + .44*test_avg_fta$VT.fta + test_tov_raw$VT.TOV)
+
+test <- data.frame(test, HT.TOV, VT.TOV)
+
+
+#######Rebounding Rates:
+#Orebr: 100 * Offensive Rebounds/(Offensive Rebounds + Opposition Defensive Rebounds)
+#drebr intuitive.
+
+#off rebound averages.
+oreb_temp=data.frame(test$HT.TS.oreb,test$HT.OTA.oreb,test$HT.TA.oreb,test$HT.OTS.oreb)
+
+test_HT_oreb_avg=rowMeans(subset(oreb_temp, select=c(test.HT.TS.oreb,test.HT.OTA.oreb)))
+test_VT_oreb_avg=rowMeans(subset(oreb_temp, select=c(test.HT.TA.oreb,test.HT.OTS.oreb)))
+
+test_oreb_avgs = data.frame(HT.oreb=test_HT_oreb_avg, VT.oreb=test_VT_oreb_avg)
+
+#def. rebounds averages
+dreb_temp=data.frame(test$HT.TS.dreb,test$HT.OTA.dreb,test$HT.TA.dreb,test$HT.OTS.dreb)
+
+test_HT_dreb_avg=rowMeans(subset(dreb_temp, select=c(test.HT.TS.dreb,test.HT.OTA.dreb)))
+test_VT_dreb_avg=rowMeans(subset(dreb_temp, select=c(test.HT.TA.dreb,test.HT.OTS.dreb)))
+
+test_dreb_avgs = data.frame(HT.dreb=test_HT_dreb_avg, VT.dreb=test_VT_dreb_avg)
+
+#offensive rebounding rate:
+HT.orebr = 100 * (test_oreb_avgs$HT.oreb / (test_oreb_avgs$HT.oreb + test_dreb_avgs$VT.dreb))
+VT.orebr = 100 * (test_oreb_avgs$VT.oreb / (test_oreb_avgs$VT.oreb + test_dreb_avgs$HT.dreb))
+
+test <- data.frame(test, HT.orebr, VT.orebr)
+
+#defensive rebounding rate:
+test_HT.drebr = 100 * (test_dreb_avgs$HT.dreb / (test_oreb_avgs$VT.oreb + test_dreb_avgs$HT.dreb))
+test_VT.drebr = 100 * (test_dreb_avgs$VT.dreb / (test_oreb_avgs$HT.oreb + test_dreb_avgs$VT.dreb))
+
+test <- data.frame(test, HT.drebr=test_HT.drebr, VT.drebr=test_VT.drebr)
+
+
+####################Free throw rate: Free Throws Attempts/Field Goals Attempts
+test_HT_fts=test_avg_fta$HT.fta/test_avg_fga$HT.fga
+test_VT_fts=test_avg_fta$VT.fta/test_avg_fga$VT.fga
+
+ft_rates=data.frame(HT_ftr = test_HT_fts, VT_ftr=test_VT_fts)
+test=cbind(test,ft_rates)
+
+###########################eFG%/TS%:  (FGm + 0.5 * 3Pm) / FGA
+#TS% is just better than efg because it accounts for ft's, but since we're counting ftr we don't want to overstate their importance,
+#lets just use efg, which doesn't considers fts, instead.
+
+#Average 3pm:
+tpm_temp=data.frame(test$HT.TS.tpm,test$HT.OTA.tpm,test$HT.TA.tpm,test$HT.OTS.tpm)
+
+test_HT_avg_tpm=rowMeans(subset(tpm_temp, select=c(test.HT.TS.tpm,test.HT.OTA.tpm)))
+test_VT_avg_tpm=rowMeans(subset(tpm_temp, select=c(test.HT.TA.tpm,test.HT.OTS.tpm)))
+
+test_avg_tpm=data.frame(HT.tpm=test_HT_avg_tpm, VT.tpm=test_VT_avg_tpm)
+  
+
+#Average fgm:
+fgm_temp=data.frame(test$HT.TS.fgm,test$HT.OTA.fgm,test$HT.TA.fgm,test$HT.OTS.fgm)
+
+test_HT_avg_fgm=rowMeans(subset(fgm_temp, select=c(test.HT.TS.fgm,test.HT.OTA.fgm)))
+test_VT_avg_fgm=rowMeans(subset(fgm_temp, select=c(test.HT.TA.fgm,test.HT.OTS.fgm)))
+
+test_avg_fgm=data.frame(HT.fgm=test_HT_avg_fgm, VT.fgm=test_VT_avg_fgm)
+
+test_HT.efg=(test_avg_fgm$HT.fgm + .5*test_avg_tpm$HT.tpm) / (test_avg_fga$HT.fga)
+test_VT.efg=(test_avg_fgm$VT.fgm + .5*test_avg_tpm$VT.tpm) / (test_avg_fga$VT.fga)
+
+test <- data.frame(test, HT.efg=test_HT.efg, VT.efg=test_VT.efg)
+
+test=subset(test, select=-c(VTleague, HTleague))
+
+```
+
+
+
+#Cross Validation and CSV writing
+
+```{r}
+library(MASS)
+library(e1071)
+library(glmnet)
+library(mvtnorm)
+
+####LDA k-fold CV
+
+
+kfold=10
+n <- ncol(df_trainer4)-1
+j.k <- sample(rep(1:kfold, length.out = nrow(df_trainer4)), nrow(df_trainer4), replace=FALSE)
+cv.errors=rep(NA,10)
+for(j in 1:kfold) {
+  j.test <- which(j.k==j)
+  trainer <- df_trainer4[-j.test,]
+  tester <- df_trainer4[j.test,]
+  ldafit <- lda(HTWins~., data=trainer)
+  cv_pred <- predict(ldafit, newdata=tester[,which(names(tester)!="HTWins")])
+  lda.classes=cv_pred$class
+  cv.errors[j] = mean(lda.classes==tester$HTWins)
+}
+
+
+####Logistic Regression
+
+cv.errors2=rep(NA,10)
+for(j in 1:kfold) {
+  j.test <- which(j.k==j)
+  trainer <- df_trainer4[-j.test,]
+  tester <- df_trainer4[j.test,]
+  logit.model <- glm(HTWins~., data=trainer, family=binomial)
+  cv_pred2 <- predict(logit.model, newdata=tester[,which(names(tester)!="HTWins")], type="response")
+  classification <- rep(1, nrow(tester))
+  classification[cv_pred2>=.5] <- 2
+  cv.errors2[j] = mean(classification==as.numeric(tester$HTWins))
+}
+
+####QDA
+# cv.errors3=rep(NA,10)
+# for(j in 1:kfold) {
+#   j.test <- which(j.k==j)
+#   trainer <- df_trainer4[-j.test,]
+#   tester <- df_trainer4[j.test,]
+#   qdafit <- qda(HTWins~., data=trainer)
+#   cv_pred3 <- predict(qdafit, newdata=tester[,which(names(tester)!="HTWins")])
+#   qda.classes=cv_pred3$class
+#   cv.errors3[j] = mean(qda.classes==tester$HTWins)
+# }
+
+####SVM
+
+cv.errors4=rep(NA,10)
+for(j in 1:kfold) {
+  j.test <- which(j.k==j)
+  trainer <- df_trainer4[-j.test,]
+  tester <- df_trainer4[j.test,]
+  svmfit <- svm(HTWins~., data=trainer)
+  cv_pred4 <- predict(svmfit, newdata=tester[,which(names(tester)!="HTWins")])
+  cv.errors4[j] = mean(cv_pred4==tester$HTWins)
+}
+
+####Lasso
+# 
+#   cv_lasso <- cv.glmnet(x=as.matrix(df_trainer4[,which(names(df_trainer4)!="HTWins")]), y=df_trainer4$HTWins, alpha=1, family = "binomial")
+#   bestlamb_lasso <- cv_lasso$lambda.min
+#   lassofit <- glmnet(x=as.matrix(trainer_lasso[,which(names(trainer_lasso)!="HTWins")]), y=trainer_lasso$HTWins, alpha=1, family = "binomial")
+#   coeffs <- coef(lassofit)
+#   
+#   lasso_pred <- predict(lassofit, newx = as.matrix(tester_lasso[,which(names(tester_lasso)!="HTWins")]), s=bestlamb_lasso, type="class")
+#   cv_err_lasso <- mean(tester_lasso$HTWins == lasso_pred)
+
+
+
+fit_svm <- svm(HTWins~., data=df_trainer4)
+fit_svm_predictions=predict(fit_svm, newdata=test)
+submission_svm=data.frame(id = test$id, HTWins = fit_svm_predictions)
+write.csv(submission_svm, "submission_svm.csv", row.names=FALSE)
+
+barplot(height=c("LDA"=mean(cv.errors2), "Logistic"=mean(cv.errors), "SVM"=mean(cv.errors4)), col=c('red','blue','green'), main="10-fold CV mean classification rates", ylim=c(.68,.683), density=10)
+
+####Submission1
+
+# fit1 <- lda(HTWins~., data=df_trainer4)
+# fit1_predictions=predict(fit1, newdata=test)$class
+# submission1=data.frame(id = test$id, HTWins = fit1_predictions)
+# write.csv(submission1, "submission1.csv", row.names=FALSE)
+```
+
+
+#late submissions, checking that altered df actually helped (it did).
+
+```{r}
+test_late=read.csv('test.csv')
+df_late=data.frame(HTWins=df$HTWins, df[sapply(df, function(x) !is.factor(x))])
+test.late.no.factors=test_late[sapply(test_late, function(x) !is.factor(x))]
+
+
+
+fit <- lda(HTWins~., data=df_late)
+fit_predictions=predict(fit, newdata=test_late.no.factors)$class
+submission100=data.frame(id = test.late.no.factors$id, HTWins = fit_predictions)
+write.csv(submission100, "submission100.csv", row.names=FALSE)
+```
+
